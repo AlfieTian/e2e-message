@@ -3,11 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/peterh/liner"
 
@@ -31,11 +30,8 @@ func main() {
 	line = liner.NewLiner()
 	defer line.Close()
 
-	// Enable multiline mode for proper Unicode handling
-	line.SetCtrlCAborts(false)
-
-	// Setup Ctrl+C handler
-	setupSignalHandler()
+	// Let liner handle Ctrl+C
+	line.SetCtrlCAborts(true)
 
 	// Display welcome message and public key
 	fmt.Println("=== E2E Message - End-to-End Encryption Tool ===")
@@ -48,13 +44,23 @@ func main() {
 
 	// Start interactive loop
 	for {
-		input, err := line.Prompt("> ")
+		prompt := "> "
+		if sess.IsEstablished() {
+			_, recv := sess.GetMessageStats()
+			if recv > 0 {
+				prompt = fmt.Sprintf("[#%d] > ", sess.GetLastRecvMsgNum())
+			}
+		}
+		input, err := line.Prompt(prompt)
 		if err != nil {
 			if err == liner.ErrPromptAborted {
 				// Ctrl+C pressed
-				handleCtrlC()
+				if handleCtrlC() {
+					return
+				}
+				continue
 			}
-			// Ignore EOF (Ctrl+D)
+			// Ignore other errors (EOF etc)
 			continue
 		}
 
@@ -65,6 +71,12 @@ func main() {
 
 		// Add to history
 		line.AppendHistory(input)
+
+		// Check if input starts with number + space (auto-decrypt)
+		if startsWithNumberSpace(input) {
+			handleDecrypt(sess, input)
+			continue
+		}
 
 		// Parse command and arguments
 		parts := strings.SplitN(input, " ", 2)
@@ -96,23 +108,30 @@ func main() {
 	}
 }
 
-func setupSignalHandler() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT)
+// startsWithNumberSpace checks if input starts with digits followed by a space
+func startsWithNumberSpace(input string) bool {
+	if len(input) < 3 {
+		return false
+	}
 
-	go func() {
-		for range sigChan {
-			handleCtrlC()
+	spaceIdx := strings.Index(input, " ")
+	if spaceIdx < 1 {
+		return false
+	}
+
+	for _, c := range input[:spaceIdx] {
+		if !unicode.IsDigit(c) {
+			return false
 		}
-	}()
+	}
+	return true
 }
 
-func handleCtrlC() {
+func handleCtrlC() bool {
 	if ctrlCPressed.Load() {
 		// Second Ctrl+C within timeout - exit
-		fmt.Println("\nGoodbye!")
-		line.Close()
-		os.Exit(0)
+		fmt.Println("Goodbye!")
+		return true
 	}
 
 	// First Ctrl+C - set flag and start timeout
@@ -124,12 +143,14 @@ func handleCtrlC() {
 		time.Sleep(2 * time.Second)
 		ctrlCPressed.Store(false)
 	}()
+
+	return false
 }
 
 func confirmExit() bool {
 	response, err := line.Prompt("Are you sure you want to exit? (y/N): ")
 	if err != nil {
-		return true
+		return false
 	}
 	response = strings.TrimSpace(strings.ToLower(response))
 	return response == "y" || response == "yes"
@@ -172,23 +193,21 @@ func handleEncrypt(sess *session.Session, plaintext string) {
 		return
 	}
 
-	fmt.Println("Encrypted message (send this to your peer):")
 	fmt.Println(ciphertext)
 }
 
-func handleDecrypt(sess *session.Session, base64Ciphertext string) {
-	if base64Ciphertext == "" {
-		fmt.Println("Usage: d <base64-ciphertext>")
+func handleDecrypt(sess *session.Session, ciphertext string) {
+	if ciphertext == "" {
+		fmt.Println("Usage: <msgNum> <base64-ciphertext>")
 		return
 	}
 
-	plaintext, err := sess.Decrypt(base64Ciphertext)
+	plaintext, err := sess.Decrypt(ciphertext)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	fmt.Println("Decrypted message:")
 	fmt.Println(plaintext)
 }
 
@@ -212,6 +231,9 @@ func handleStatus(sess *session.Session) {
 		fmt.Println()
 		send, recv := sess.GetMessageStats()
 		fmt.Printf("Messages sent: %d, received: %d\n", send, recv)
+		if recv > 0 {
+			fmt.Printf("Last received message: #%d\n", sess.GetLastRecvMsgNum())
+		}
 		fmt.Println("(Each message uses a unique key for forward secrecy)")
 	}
 }
@@ -221,7 +243,7 @@ func handleHelp() {
 	fmt.Println()
 	fmt.Println("  key <base64-public-key>  Import peer's public key to establish secure channel")
 	fmt.Println("  e <plaintext>            Encrypt a message")
-	fmt.Println("  d <base64-ciphertext>    Decrypt a message")
+	fmt.Println("  <msgNum> <ciphertext>    Decrypt (auto-detected, no 'd' needed)")
 	fmt.Println("  status                   Show current session status")
 	fmt.Println("  help                     Show this help message")
 	fmt.Println("  quit / exit / q          Exit the program")
@@ -231,8 +253,8 @@ func handleHelp() {
 	fmt.Println("1. Share your public key with your peer (displayed at startup)")
 	fmt.Println("2. Import your peer's public key using: key <their-public-key>")
 	fmt.Println("3. Verify the 5 words match on both sides (MITM protection)")
-	fmt.Println("4. Encrypt messages using: e <your message>")
-	fmt.Println("5. Decrypt received messages using: d <encrypted-message>")
+	fmt.Println("4. Encrypt: e <your message>")
+	fmt.Println("5. Decrypt: paste the received message directly (e.g., 0 abc123...)")
 	fmt.Println()
 	fmt.Println("=== Exit ===")
 	fmt.Println()

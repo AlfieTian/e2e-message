@@ -3,21 +3,23 @@ package session
 import (
 	"crypto/ecdh"
 	"encoding/base64"
-	"encoding/binary"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"e2e-message/internal/crypto"
 )
 
 // Session represents an E2E encryption session with forward secrecy
 type Session struct {
-	privateKey  *ecdh.PrivateKey // Our private key
-	publicKey   []byte           // Our public key bytes
-	peerPubKey  []byte           // Peer's public key bytes
-	ratchet     *crypto.Ratchet  // Key ratchet for forward secrecy
-	aesKey      []byte           // Base AES key (for verification words)
-	established bool             // Whether the session is established
-	isInitiator bool             // Whether we initiated (our pubkey < peer's)
+	privateKey     *ecdh.PrivateKey // Our private key
+	publicKey      []byte           // Our public key bytes
+	peerPubKey     []byte           // Peer's public key bytes
+	ratchet        *crypto.Ratchet  // Key ratchet for forward secrecy
+	aesKey         []byte           // Base AES key (for verification words)
+	established    bool             // Whether the session is established
+	isInitiator    bool             // Whether we initiated (our pubkey < peer's)
+	lastRecvMsgNum uint32           // Last successfully received message number
 }
 
 // NewSession creates a new session and generates a key pair
@@ -82,9 +84,9 @@ func (s *Session) SetPeerPublicKey(base64Key string) error {
 	return nil
 }
 
-// Encrypt encrypts a plaintext message and returns Base64 encoded ciphertext
+// Encrypt encrypts a plaintext message and returns formatted ciphertext
 // Each message uses a unique key (forward secrecy)
-// Format: msgNum (4 bytes) + nonce (12 bytes) + ciphertext + tag (16 bytes)
+// Format: "msgNum base64_ciphertext" (e.g., "0 abc123...")
 func (s *Session) Encrypt(plaintext string) (string, error) {
 	if !s.established {
 		return "", fmt.Errorf("session not established: please import peer's public key first")
@@ -102,41 +104,40 @@ func (s *Session) Encrypt(plaintext string) (string, error) {
 		return "", fmt.Errorf("encryption failed: %w", err)
 	}
 
-	// Prepend message number for receiver to derive correct key
-	result := make([]byte, 4+len(ciphertext))
-	binary.BigEndian.PutUint32(result[:4], msgNum)
-	copy(result[4:], ciphertext)
-
 	// Clear message key from memory (best effort)
 	for i := range msgKey {
 		msgKey[i] = 0
 	}
 
-	return base64.StdEncoding.EncodeToString(result), nil
+	// Format: "msgNum base64_ciphertext"
+	return fmt.Sprintf("%d %s", msgNum, base64.StdEncoding.EncodeToString(ciphertext)), nil
 }
 
-// Decrypt decrypts a Base64 encoded ciphertext and returns the plaintext
-// Uses the message number to derive the correct key
-func (s *Session) Decrypt(base64Ciphertext string) (string, error) {
+// Decrypt decrypts a formatted ciphertext and returns the plaintext
+// Format: "msgNum base64_ciphertext" (e.g., "0 abc123...")
+func (s *Session) Decrypt(input string) (string, error) {
 	if !s.established {
 		return "", fmt.Errorf("session not established: please import peer's public key first")
 	}
 
-	data, err := base64.StdEncoding.DecodeString(base64Ciphertext)
+	// Parse "msgNum base64_ciphertext"
+	parts := strings.SplitN(input, " ", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid format: expected 'msgNum base64_ciphertext'")
+	}
+
+	msgNum, err := strconv.ParseUint(parts[0], 10, 32)
+	if err != nil {
+		return "", fmt.Errorf("invalid message number: %w", err)
+	}
+
+	ciphertext, err := base64.StdEncoding.DecodeString(parts[1])
 	if err != nil {
 		return "", fmt.Errorf("invalid Base64 encoding: %w", err)
 	}
 
-	if len(data) < 4 {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-
-	// Extract message number
-	msgNum := binary.BigEndian.Uint32(data[:4])
-	ciphertext := data[4:]
-
 	// Get the message key for this message number
-	msgKey, err := s.ratchet.GetRecvKey(msgNum)
+	msgKey, err := s.ratchet.GetRecvKey(uint32(msgNum))
 	if err != nil {
 		return "", fmt.Errorf("failed to get message key: %w", err)
 	}
@@ -152,7 +153,15 @@ func (s *Session) Decrypt(base64Ciphertext string) (string, error) {
 		msgKey[i] = 0
 	}
 
+	// Store last received message number
+	s.lastRecvMsgNum = uint32(msgNum)
+
 	return string(plaintext), nil
+}
+
+// GetLastRecvMsgNum returns the last successfully received message number
+func (s *Session) GetLastRecvMsgNum() uint32 {
+	return s.lastRecvMsgNum
 }
 
 // IsEstablished returns whether the session has been established
