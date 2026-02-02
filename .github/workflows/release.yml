@@ -77,6 +77,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -89,7 +92,6 @@ jobs:
             cp "$dir"* release/
           done
           cd release
-          # Create checksums
           sha256sum * > checksums.txt
 
       - name: Determine tag
@@ -101,32 +103,48 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+
+          # Extract changelog for this version
+          CHANGELOG=$(awk "/^## \\[${TAG}\\]/{flag=1; next} /^## \\[/{flag=0} flag" CHANGELOG.md | head -50)
+
+          # Generate release notes file
+          cat > release_notes.md << EOF
+          ## E2E Message ${TAG}
+
+          End-to-end encryption tool using ECDH key exchange and AES-256-GCM.
+
+          ### Changelog
+
+          ${CHANGELOG:-No changelog available for this version.}
+
+          ### Downloads
+
+          | Platform | Architecture | File |
+          |----------|--------------|------|
+          | Linux | x64 | \`e2e-message-linux-amd64\` |
+          | Linux | ARM64 | \`e2e-message-linux-arm64\` |
+          | Linux | x86 | \`e2e-message-linux-386\` |
+          | macOS | x64 (Intel) | \`e2e-message-darwin-amd64\` |
+          | macOS | ARM64 (Apple Silicon) | \`e2e-message-darwin-arm64\` |
+          | Windows | x64 | \`e2e-message-windows-amd64.exe\` |
+          | Windows | ARM64 | \`e2e-message-windows-arm64.exe\` |
+          | Windows | x86 | \`e2e-message-windows-386.exe\` |
+
+          ### Verify Download
+
+          Check the \`checksums.txt\` file for SHA256 hashes.
+          EOF
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Release ${{ steps.tag.outputs.tag }}
-          body: |
-            ## E2E Message ${{ steps.tag.outputs.tag }}
-
-            End-to-end encryption tool using ECDH key exchange and AES-256-GCM.
-
-            ### Downloads
-
-            | Platform | Architecture | File |
-            |----------|--------------|------|
-            | Linux | x64 | `e2e-message-linux-amd64` |
-            | Linux | ARM64 | `e2e-message-linux-arm64` |
-            | Linux | x86 | `e2e-message-linux-386` |
-            | macOS | x64 (Intel) | `e2e-message-darwin-amd64` |
-            | macOS | ARM64 (Apple Silicon) | `e2e-message-darwin-arm64` |
-            | Windows | x64 | `e2e-message-windows-amd64.exe` |
-            | Windows | ARM64 | `e2e-message-windows-arm64.exe` |
-            | Windows | x86 | `e2e-message-windows-386.exe` |
-
-            ### Verify Download
-
-            Check the `checksums.txt` file for SHA256 hashes.
+          body_path: release_notes.md
           files: |
             release/*
           draft: false

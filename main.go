@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,11 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/peterh/liner"
+
 	"e2e-message/internal/session"
 )
 
 var (
-	reader       *bufio.Reader
+	line         *liner.State
 	ctrlCPressed atomic.Bool
 )
 
@@ -25,6 +26,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to initialize session: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Setup liner for proper UTF-8 input handling
+	line = liner.NewLiner()
+	defer line.Close()
+
+	// Enable multiline mode for proper Unicode handling
+	line.SetCtrlCAborts(false)
 
 	// Setup Ctrl+C handler
 	setupSignalHandler()
@@ -39,21 +47,24 @@ func main() {
 	fmt.Println()
 
 	// Start interactive loop
-	reader = bufio.NewReader(os.Stdin)
-
 	for {
-		fmt.Print("> ")
-		input, err := reader.ReadString('\n')
+		input, err := line.Prompt("> ")
 		if err != nil {
-			// Handle EOF (Ctrl+D) - exit directly
-			fmt.Println("\nGoodbye!")
-			return
+			if err == liner.ErrPromptAborted {
+				// Ctrl+C pressed
+				handleCtrlC()
+			}
+			// Ignore EOF (Ctrl+D)
+			continue
 		}
 
 		input = strings.TrimSpace(input)
 		if input == "" {
 			continue
 		}
+
+		// Add to history
+		line.AppendHistory(input)
 
 		// Parse command and arguments
 		parts := strings.SplitN(input, " ", 2)
@@ -91,32 +102,33 @@ func setupSignalHandler() {
 
 	go func() {
 		for range sigChan {
-			if ctrlCPressed.Load() {
-				// Second Ctrl+C within timeout - exit
-				fmt.Println("\nGoodbye!")
-				os.Exit(0)
-			}
-
-			// First Ctrl+C - set flag and start timeout
-			ctrlCPressed.Store(true)
-			fmt.Println("\nPress Ctrl+C again within 2 seconds to exit, or type a command to continue...")
-			fmt.Print("> ")
-
-			// Reset flag after 2 seconds
-			go func() {
-				time.Sleep(2 * time.Second)
-				ctrlCPressed.Store(false)
-			}()
+			handleCtrlC()
 		}
 	}()
 }
 
+func handleCtrlC() {
+	if ctrlCPressed.Load() {
+		// Second Ctrl+C within timeout - exit
+		fmt.Println("\nGoodbye!")
+		line.Close()
+		os.Exit(0)
+	}
+
+	// First Ctrl+C - set flag and start timeout
+	ctrlCPressed.Store(true)
+	fmt.Println("\nPress Ctrl+C again within 2 seconds to exit, or type a command to continue...")
+
+	// Reset flag after 2 seconds
+	go func() {
+		time.Sleep(2 * time.Second)
+		ctrlCPressed.Store(false)
+	}()
+}
+
 func confirmExit() bool {
-	fmt.Print("Are you sure you want to exit? (y/N): ")
-	response, err := reader.ReadString('\n')
+	response, err := line.Prompt("Are you sure you want to exit? (y/N): ")
 	if err != nil {
-		// EOF means user pressed Ctrl+D, treat as "yes"
-		fmt.Println()
 		return true
 	}
 	response = strings.TrimSpace(strings.ToLower(response))
