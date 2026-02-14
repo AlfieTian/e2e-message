@@ -1,52 +1,54 @@
 # E2E Message
 
-一个基于命令行的端到端加密通信工具。双方通过交换公钥建立安全通道，使用 ECDH 密钥交换和 AES-256-GCM 加密算法，支持前向保密。
+A command-line end-to-end encryption tool. Two parties establish a secure channel by exchanging public keys, using ECDH key exchange and AES-256-GCM encryption with forward secrecy.
 
-## 安装
+[中文文档](README_zh.md)
 
-### 从 Release 下载
+## Installation
 
-前往 [GitHub Releases](https://github.com/user/e2e-message/releases) 下载对应平台的预编译二进制文件。支持 Linux、macOS、Windows 的多种架构。
+### Download from Release
 
-### 从源码构建
+Go to [GitHub Releases](https://github.com/AlfieTian/e2e-message/releases) to download prebuilt binaries for your platform. Supports Linux, macOS, and Windows on multiple architectures.
 
-需要 Go 1.21 或更高版本。
+### Build from Source
+
+Requires Go 1.21 or later.
 
 ```bash
-git clone <repo-url>
+git clone git@github.com:AlfieTian/e2e-message.git
 cd e2e-message
 go build -o e2e-message
 ```
 
-## 快速开始
+## Quick Start
 
-### 1. 启动程序
+### 1. Launch the Program
 
-双方各自启动程序：
+Both parties start the program:
 
 ```
 ./e2e-message
 ```
 
-启动后会显示你的公钥：
+On startup, your public key is displayed:
 
 ```
 === E2E Message - End-to-End Encryption Tool ===
 
 Your public key (share this with your peer):
-BPx7kG...（Base64 编码的公钥）
+BPx7kG... (Base64-encoded public key)
 ```
 
-### 2. 交换公钥
+### 2. Exchange Public Keys
 
-将你的公钥通过任意渠道（聊天、邮件等）发送给对方。
+Share your public key with the other party through any channel (chat, email, etc.).
 
-### 3. 导入对方公钥
+### 3. Import Peer's Public Key
 
-使用 `key` 命令导入对方的公钥：
+Use the `key` command to import the other party's public key:
 
 ```
-> key BQx8mH...（对方的公钥）
+> key BQx8mH... (peer's public key)
 Peer public key imported successfully!
 Secure channel established. You can now encrypt and decrypt messages.
 
@@ -55,61 +57,61 @@ Verify these words match on both sides to ensure no MITM attack:
   apple - dragon - forest - mirror - ocean
 ```
 
-双方需要确认显示的验证词完全一致，以排除中间人攻击。
+Both parties must confirm that the verification words are identical to rule out a man-in-the-middle attack.
 
-### 4. 发送加密消息
+### 4. Send an Encrypted Message
 
-使用 `e` 命令加密消息：
+Use the `e` command to encrypt a message:
 
 ```
-> e 你好，这是一条加密消息
-0 SGVsbG8gV29ybGQ...（加密后的密文）
+> e Hello, this is a secret message
+0 SGVsbG8gV29ybGQ... (encrypted ciphertext)
 ```
 
-将输出的整行内容（数字和密文）发送给对方。
+Send the entire output line (number and ciphertext) to the other party.
 
-### 5. 接收并解密消息
+### 5. Receive and Decrypt a Message
 
-收到对方发来的密文后，直接粘贴即可自动解密：
+Paste the received ciphertext directly to auto-decrypt:
 
 ```
 > 0 SGVsbG8gV29ybGQ...
-你好，这是一条加密消息
+Hello, this is a secret message
 ```
 
-也可以使用 `d` 命令显式解密：
+You can also use the `d` command to decrypt explicitly:
 
 ```
 > d 0 SGVsbG8gV29ybGQ...
 ```
 
-## 命令参考
+## Command Reference
 
-| 命令 | 说明 |
-|------|------|
-| `key <公钥>` | 导入对方公钥，建立安全通道 |
-| `e <明文>` | 加密消息 |
-| `d <序号> <密文>` | 解密消息 |
-| `<序号> <密文>` | 自动解密（输入以数字开头时触发） |
-| `status` | 查看当前会话状态、消息计数和验证词 |
-| `help` | 显示帮助信息 |
-| `quit` / `exit` / `q` | 退出程序 |
+| Command | Description |
+|---------|-------------|
+| `key <public-key>` | Import peer's public key and establish a secure channel |
+| `e <plaintext>` | Encrypt a message |
+| `d <number> <ciphertext>` | Decrypt a message |
+| `<number> <ciphertext>` | Auto-decrypt (triggered when input starts with a number) |
+| `status` | Show session status, message counts, and verification words |
+| `help` | Display help information |
+| `quit` / `exit` / `q` | Exit the program |
 
-## 使用说明
+## Usage Details
 
-### 提示符
+### Prompt
 
-提示符会显示最近收到的消息序号：
+The prompt displays the most recently received message number:
 
 ```
 [#3] >
 ```
 
-这表示最近解密的消息序号为 3。
+This indicates that the last decrypted message had sequence number 3.
 
-### 消息格式
+### Message Format
 
-加密后的输出格式为 `序号 密文`，例如：
+Encrypted output follows the format `number ciphertext`, for example:
 
 ```
 0 base64encodedciphertext...
@@ -117,53 +119,53 @@ Verify these words match on both sides to ensure no MITM attack:
 2 yetanotherbase64ciphertext...
 ```
 
-序号从 0 开始递增。解密时需要提供完整的序号和密文。
+Sequence numbers start from 0 and increment. Both the number and ciphertext are required for decryption.
 
-### 前向保密
+### Forward Secrecy
 
-每条消息使用独立的密钥加密。即使某条消息的密钥泄露，也不会影响其他消息的安全性。工具支持乱序接收消息，最多可以容忍 100 条跳跃消息。
+Each message is encrypted with an independent key. Even if one message key is compromised, other messages remain secure. The tool supports out-of-order message delivery, tolerating up to 100 skipped messages.
 
-### 验证词
+### Verification Words
 
-建立安全通道后，双方会看到 5 个验证词。请通过电话或其他可信渠道确认双方的验证词完全一致。如果不一致，说明通信可能遭受了中间人攻击，应立即终止会话。
+After establishing a secure channel, both parties will see 5 verification words. Confirm via a trusted channel (phone call, in person, etc.) that both sides see the same words. If they differ, the communication may be under a man-in-the-middle attack -- terminate the session immediately.
 
-### 快捷操作
+### Shortcuts
 
-- 支持上下方向键浏览命令历史
-- 按两次 Ctrl+C 强制退出
+- Use up/down arrow keys to browse command history
+- Press Ctrl+C twice to force quit
 
-## 典型使用流程
+## Typical Workflow
 
 ```
 Alice                                    Bob
 ─────                                    ───
-启动程序，得到公钥 A                       启动程序，得到公钥 B
-        ──── 公钥 A ────>
-        <──── 公钥 B ────
-key <公钥B>                               key <公钥A>
-确认验证词一致                             确认验证词一致
-e 你好
-        ──── 0 密文 ────>
-                                          粘贴 "0 密文" 解密
-                                          e 收到了
-        <──── 0 密文 ────
-粘贴 "0 密文" 解密
+Start program, get public key A          Start program, get public key B
+        ──── public key A ────>
+        <──── public key B ────
+key <keyB>                               key <keyA>
+Confirm verification words match         Confirm verification words match
+e Hello
+        ──── 0 ciphertext ────>
+                                         Paste "0 ciphertext" to decrypt
+                                         e Got it
+        <──── 0 ciphertext ────
+Paste "0 ciphertext" to decrypt
 ```
 
-## 技术细节
+## Technical Details
 
-- 密钥交换：ECDH (P-256)
-- 对称加密：AES-256-GCM
-- 密钥派生：HKDF-SHA256
-- 前向保密：基于 HKDF 的棘轮机制
-- 验证词：从共享密钥的 SHA256 哈希中提取
+- Key exchange: ECDH (P-256)
+- Symmetric encryption: AES-256-GCM
+- Key derivation: HKDF-SHA256
+- Forward secrecy: HKDF-based ratchet mechanism
+- Verification words: Derived from SHA256 hash of the shared key
 
-## 运行测试
+## Running Tests
 
 ```bash
 go test -v
 ```
 
-## 许可证
+## License
 
 GNU General Public License v3.0
